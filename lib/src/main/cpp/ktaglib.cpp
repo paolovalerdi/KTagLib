@@ -17,6 +17,7 @@
 #include <toolkit/tpicturemap.h>
 #include <toolkit/tdebuglistener.h>
 #include <android/log.h>
+#include <tpropertymap.h>
 
 jclass globalMetadataClass;
 jmethodID metadataInit;
@@ -128,28 +129,27 @@ extern "C" void JNI_OnUnload(JavaVM *vm, void *reserved) {
 
 extern "C"
 JNIEXPORT jobject JNICALL
-Java_com_simplecityapps_ktaglib_KTagLib_getMetadata(JNIEnv *env, jclass clazz, jint file_descriptor) {
-
+Java_com_simplecityapps_ktaglib_KTagLib_getMetadata(JNIEnv *env, jobject clazz, jint file_descriptor) {
     auto stream = std::make_unique<TagLib::FileStream>(file_descriptor, true);
-    TagLib::FileRef fileRef(stream.get());
+    auto fileRef = TagLib::FileRef(stream.get());
 
-    if (fileRef.isValid()) {
-        jobject jPropertyMap = env->NewObject(globalHashMapClass, hashMapInit);
+    if (!fileRef.isNull() && fileRef.file()) {
+        auto kMap = env->NewObject(globalHashMapClass, hashMapInit);
+        auto tags = fileRef.file()->properties();
 
-        auto taglibProperties = fileRef.properties();
-        for (auto &taglibProperty : taglibProperties) {
-            jstring key = env->NewStringUTF(taglibProperty.first.toCString(true));
-            jobject values = env->NewObject(globalArrayListClass, arrayListInit, (jint) 0);
-            for (auto &value : taglibProperty.second) {
+        for (auto &tag : tags) {
+            auto key = env->NewStringUTF(tag.first.toCString(true));
+            auto values = env->NewObject(globalArrayListClass, arrayListInit, (jint) 0);
+            for (auto &value : tag.second) {
                 env->CallBooleanMethod(values, addListElement, env->NewStringUTF(value.toCString(true)));
             }
-            env->CallObjectMethod(jPropertyMap, addProperty, key, values);
+            env->CallObjectMethod(kMap, addProperty, key, values);
         }
 
-        jobject jAudioProperties = nullptr;
+        jobject kAudioProperties = nullptr;
         auto audioProperties = fileRef.audioProperties();
-        if (audioProperties != nullptr) {
-            jAudioProperties = env->NewObject(
+        if (fileRef.audioProperties()) {
+            kAudioProperties = env->NewObject(
                     globalAudioPropertiesClass,
                     audioPropertiesInit,
                     (jint) audioProperties->lengthInMilliseconds(),
@@ -158,58 +158,59 @@ Java_com_simplecityapps_ktaglib_KTagLib_getMetadata(JNIEnv *env, jclass clazz, j
                     (jint) audioProperties->channels()
             );
         }
-        return env->NewObject(globalMetadataClass, metadataInit, jPropertyMap, jAudioProperties);
-    }
 
+        return env->NewObject(globalMetadataClass, metadataInit, kMap, kAudioProperties);
+    }
     return nullptr;
 }
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_com_simplecityapps_ktaglib_KTagLib_writeMetadata(JNIEnv *env, jclass clazz, jint file_descriptor, jobject properties) {
+Java_com_simplecityapps_ktaglib_KTagLib_writeMetadata(JNIEnv *env, jobject clazz, jint file_descriptor, jobject properties) {
 
-    auto stream = std::make_unique<TagLib::FileStream>(file_descriptor, false);
-    TagLib::FileRef fileRef(stream.get());
+//    auto stream = std::make_unique<TagLib::FileStream>(file_descriptor, false);
+//    TagLib::FileRef fileRef(stream.get());
+//
+//    jboolean isSuccessful = false;
+//
+//    if (fileRef.isValid()) {
+//        TagLib::PropertyMap taglibProperties = fileRef.properties();
+//        jobject entrySet = env->CallObjectMethod(properties, getEntrySet);
+//        jobject iterator = env->CallObjectMethod(entrySet, getIterator);
+//
+//        while (env->CallBooleanMethod(iterator, iteratorHasNext)) {
+//            jobject entry = env->CallObjectMethod(iterator, iteratorNextEntry);
+//            auto key = (jstring) env->CallObjectMethod(entry, getPropertyKey);
+//            jobject values = env->CallObjectMethod(entry, getPropertyValue);
+//            jint len = env->CallIntMethod(values, getListSize);
+//            TagLib::StringList stringList;
+//            for (jint i = 0; i < len; i++) {
+//                auto element = (jstring) env->CallObjectMethod(values, getListElement, i);
+//                stringList.append(TagLib::String(convertJStringToCString(env, element)));
+//            }
+//            taglibProperties.replace(
+//                    TagLib::String(convertJStringToCString(env, key)),
+//                    stringList
+//            );
+//        }
+//
+//        fileRef.setProperties(taglibProperties);
+//        isSuccessful = fileRef.save();
+//    }
 
-    jboolean isSuccessful = false;
-
-    if (fileRef.isValid()) {
-        TagLib::PropertyMap taglibProperties = fileRef.properties();
-        jobject entrySet = env->CallObjectMethod(properties, getEntrySet);
-        jobject iterator = env->CallObjectMethod(entrySet, getIterator);
-
-        while (env->CallBooleanMethod(iterator, iteratorHasNext)) {
-            jobject entry = env->CallObjectMethod(iterator, iteratorNextEntry);
-            auto key = (jstring) env->CallObjectMethod(entry, getPropertyKey);
-            jobject values = env->CallObjectMethod(entry, getPropertyValue);
-            jint len = env->CallIntMethod(values, getListSize);
-            TagLib::StringList stringList;
-            for (jint i = 0; i < len; i++) {
-                auto element = (jstring) env->CallObjectMethod(values, getListElement, i);
-                stringList.append(TagLib::String(convertJStringToCString(env, element)));
-            }
-            taglibProperties.replace(
-                    TagLib::String(convertJStringToCString(env, key)),
-                    stringList
-            );
-        }
-
-        fileRef.setProperties(taglibProperties);
-        isSuccessful = fileRef.save();
-    }
-
-    return isSuccessful;
+    return false;
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_com_simplecityapps_ktaglib_KTagLib_getArtwork(JNIEnv *env, jclass clazz, jint file_descriptor) {
+Java_com_simplecityapps_ktaglib_KTagLib_getArtwork(JNIEnv *env, jobject clazz, jint file_descriptor) {
 
     auto stream = std::make_unique<TagLib::FileStream>(file_descriptor, true);
     TagLib::FileRef fileRef(stream.get());
 
     jbyteArray result = nullptr;
 
-    if (fileRef.isValid()) {
+    if (!fileRef.isNull()) {
+
         TagLib::ByteVector byteVector;
 
         if (auto *flacFile = dynamic_cast<TagLib::FLAC::File *>(fileRef.file())) {
